@@ -16,12 +16,31 @@
 
 ```bash
 # Start application
-clj -M:run
+clj -X:run
 ```
 
 The application runs on `http://localhost:7070` by default.
 
 ## Development
+
+### REPL workflow
+
+```bash
+# Start nREPL with development reload enabled
+clj -M:dev:repl
+```
+
+```clojure
+(load-file "dev/user.clj")
+
+;; Load Clojure workflow functions for isolated testing
+(require 'dbos-starter.core)
+
+;; Boot the full app from the REPL
+(org.example.App/main (into-array String []))
+```
+
+### Useful commands
 
 ```bash
 # Check for outdated dependencies
@@ -35,4 +54,12 @@ clj -M:fmt
 
 # Apply formatting fixes
 clj -M:fix
+```
+
+### E2E test
+
+```bash
+# Compile + run JUnit E2E test (inlines DBOS, PG only)
+clj -T:build compile-e2e-java && java -cp "$(clj -A:e2e-test -Spath)" org.junit.platform.console.ConsoleLauncher --class-path classes --select-class org.example.AppE2ETest
+
 ```
