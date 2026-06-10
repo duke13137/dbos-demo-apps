@@ -7,12 +7,12 @@
 
 ((requiring-resolve 'clojure+.hashp/install!))
 
-(let [reload-init (requiring-resolve 'clj-reload.core/init)
-      reload   (requiring-resolve 'clj-reload.core/reload)]
-  (reload-init {:dirs ["src/main/clojure" "src/test/clojure"]})
-  (require 'virgil)
-  ((requiring-resolve 'virgil/watch-and-recompile)
-   ["src/main/java"]
-   :options ["--release" "25" "-Xlint:unchecked"]
-   :post-hook #(reload {:only :loaded})
-   :verbose true))
+(require '[clj-reload.core :as reload])
+(reload/init {:dirs ["src/main/clojure" "src/test/clojure"]})
+
+(require 'virgil)
+(virgil/watch-and-recompile
+  ["src/main/java"]
+  :options ["--release" "25" "-Xlint:unchecked"]
+  :post-hook #(reload/reload {:only :loaded})
+  :verbose true)

@@ -1,3 +1,8 @@
+---
+name: dbos-java
+description: "Use this skill for coding Java or Clojure DBOS workflows"
+---
+
 # Build Reliable Applications With DBOS
 
 ## Guidelines

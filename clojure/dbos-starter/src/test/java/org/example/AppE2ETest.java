@@ -11,15 +11,15 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import clojure.lang.AFn;
 
 class AppE2ETest {
   private static final String BASE_URL = "http://127.0.0.1:7777";
   private static final String WORKFLOW_ID = "e2e-test-001";
+  private static final String BANK_TRANSFER_WORKFLOW_ID = "e2e-test-bt-002";
   private static final String DEFAULT_DATABASE = "dbos_starter_java";
 
   private static DBOS dbos;
-  private static DurableStarterService proxy;
+  private static DurableWorkflowService proxy;
   private static Object server;
 
   @BeforeAll
@@ -40,19 +40,9 @@ class AppE2ETest {
             .withDbPassword(dbPassword)
             .withAppVersion("0.2.0"));
 
-    proxy = dbos.registerProxy(DurableStarterService.class, new DurableStarterServiceImpl(dbos));
+    proxy = dbos.registerProxy(DurableWorkflowService.class, new DurableWorkflowServiceImpl(dbos));
 
-    AFn startWorkflow = new AFn() {
-      @Override
-      public Object invoke(Object taskId) {
-        dbos.startWorkflow(
-            () -> proxy.exampleWorkflow(),
-            new StartWorkflowOptions((String) taskId));
-        return null;
-      }
-    };
-
-    server = ClojureFacade.startServer(dbos, startWorkflow, 7777);
+    server = ClojureFacade.startServer(dbos, proxy, 7777);
   }
 
   @AfterAll
@@ -77,6 +67,26 @@ class AppE2ETest {
       Thread.sleep(500);
     }
     assertEquals("3", lastStep, "Expected final step 3");
+  }
+
+  @Test
+  void bankTransferCompletesAllSteps() throws Exception {
+    given().when()
+        .post(BASE_URL + "/bank-transfer/" + BANK_TRANSFER_WORKFLOW_ID)
+        .then().statusCode(200);
+
+    var deadline = System.currentTimeMillis() + 30_000;
+    String lastStep = "";
+    while (System.currentTimeMillis() < deadline) {
+      var response = given().when()
+          .get(BASE_URL + "/last_step/" + BANK_TRANSFER_WORKFLOW_ID);
+      lastStep = response.getBody().asString();
+      if ("200".equals(lastStep)) {
+        break;
+      }
+      Thread.sleep(500);
+    }
+    assertEquals("200", lastStep, "Expected final step 200 for bank transfer");
   }
 
   private static boolean hasRequiredPgEnv() {
