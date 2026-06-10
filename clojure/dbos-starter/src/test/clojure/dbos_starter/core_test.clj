@@ -3,7 +3,6 @@
             [dbos-starter.core :as core])
   (:import [dev.dbos.transact DBOS StartWorkflowOptions]
            [dev.dbos.transact.config DBOSConfig]
-           [dev.dbos.transact.execution ThrowingSupplier]
            [java.time Duration]
            [java.util UUID]
            [org.example DurableWorkflowService DurableWorkflowServiceImpl]))
@@ -41,9 +40,7 @@
 
 (defn- execute-workflow! [workflow-id workflow-call]
   (let [handle (.startWorkflow *dbos*
-                               (reify ThrowingSupplier
-                                 (execute [_]
-                                   (workflow-call *workflow-proxy*)))
+                               #(workflow-call *workflow-proxy*)
                                (StartWorkflowOptions. workflow-id))]
     {:workflow-id workflow-id
      :result (.getResult handle)
@@ -53,8 +50,7 @@
 (deftest example-workflow-test
   (let [{:keys [result step workflow-id]}
         (execute-workflow! (str "clj-example-" (UUID/randomUUID))
-                           (fn [proxy]
-                             (.exampleWorkflow ^DurableWorkflowService proxy)))]
+                           DurableWorkflowService/.exampleWorkflow)]
     (is (= "workflow-completed" result))
     (is (= (Integer/valueOf 3) step))
     (is (string? workflow-id))))
@@ -62,8 +58,7 @@
 (deftest bank-transfer-workflow-test
   (let [{:keys [result step workflow-id]}
         (execute-workflow! (str "clj-bank-transfer-" (UUID/randomUUID))
-                           (fn [proxy]
-                             (.bankTransferWorkflow ^DurableWorkflowService proxy)))]
+                           DurableWorkflowService/.bankTransferWorkflow)]
     (is (= "bank-transfre-completed" result))
     (is (= (Integer/valueOf 200) step))
     (is (string? workflow-id))))

@@ -151,3 +151,7 @@ dist
 
 # Scala Metals LSP files
 .metals/
+
+.classpath
+.project
+.settings/
