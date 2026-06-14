@@ -1,108 +1,133 @@
 package org.example;
 
-import static io.restassured.RestAssured.given;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import dev.dbos.transact.DBOS;
-import dev.dbos.transact.config.DBOSConfig;
 import dev.dbos.transact.StartWorkflowOptions;
-import java.util.Map;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeAll;
+import dev.dbos.transact.execution.ThrowingRunnable;
+import dev.dbos.transact.execution.ThrowingSupplier;
+import dev.dbos.transact.workflow.WorkflowHandle;
+
+import java.util.List;
+import java.time.Duration;
+import java.util.Optional;
+
 import org.junit.jupiter.api.Test;
 
 class AppE2ETest {
-  private static final String BASE_URL = "http://127.0.0.1:7777";
-  private static final String WORKFLOW_ID = "e2e-test-001";
-  private static final String BANK_TRANSFER_WORKFLOW_ID = "e2e-test-bt-002";
-  private static final String DEFAULT_DATABASE = "dbos_starter_java";
+  private static final String STEPS_EVENT = "steps_event";
 
-  private static DBOS dbos;
-  private static DurableWorkflowService proxy;
-  private static Object server;
-
-  @BeforeAll
-  static void startEnvironment() throws Exception {
-    Assumptions.assumeTrue(
-        hasRequiredPgEnv(),
-        "PGHOST, PGUSER, and PGPASSWORD must be set for AppE2ETest.");
-
-    var env = System.getenv();
-    var dbUrl = buildJdbcUrl(env);
-    var dbUser = env.get("PGUSER");
-    var dbPassword = env.get("PGPASSWORD");
-
-    dbos = new DBOS(
-        DBOSConfig.defaults("dbos-starter-java")
-            .withDatabaseUrl(dbUrl)
-            .withDbUser(dbUser)
-            .withDbPassword(dbPassword)
-            .withAppVersion("0.2.0"));
-
-    proxy = dbos.registerProxy(DurableWorkflowService.class, new DurableWorkflowServiceImpl(dbos));
-
-    server = ClojureFacade.startServer(dbos, proxy, 7777);
+  @SuppressWarnings({ "rawtypes", "unchecked" })
+  private static ThrowingSupplier<Object, Exception> anyObjectSupplier() {
+    return (ThrowingSupplier) any();
   }
 
-  @AfterAll
-  static void stopEnvironment() {
-    if (server != null) {
-      ClojureFacade.stopServer(server);
-    }
+  @SuppressWarnings({ "rawtypes", "unchecked" })
+  private static ThrowingRunnable<Exception> anyRunnable() {
+    return (ThrowingRunnable) any();
+  }
+
+  private static List<String> workflowEvents(DBOS dbos) {
+    return mockingDetails(dbos).getInvocations().stream()
+        .filter(invocation -> {
+          var methodName = invocation.getMethod().getName();
+          return "runStep".equals(methodName) || "setEvent".equals(methodName);
+        })
+        .map(invocation -> {
+          var methodName = invocation.getMethod().getName();
+          var args = invocation.getArguments();
+          if ("runStep".equals(methodName)) {
+            return "runStep:" + args[1];
+          }
+          return "setEvent:" + args[1];
+        })
+        .toList();
+  }
+
+  private static long invocationCount(DBOS dbos, String methodName) {
+    return mockingDetails(dbos).getInvocations().stream()
+        .filter(invocation -> methodName.equals(invocation.getMethod().getName()))
+        .count();
   }
 
   @Test
-  void workflowCompletesAllSteps() throws Exception {
-    given().when().get(BASE_URL + "/workflow/" + WORKFLOW_ID).then().statusCode(200);
+  void exampleWorkflow_runsThreeStepsInOrderAndReturnsResult() throws Exception {
+    var mockDBOS = mock(DBOS.class);
+    var service = new DurableWorkflowServiceImpl(mockDBOS);
 
-    var deadline = System.currentTimeMillis() + 30_000;
-    String lastStep = "";
-    while (System.currentTimeMillis() < deadline) {
-      var response = given().when().get(BASE_URL + "/last_step/" + WORKFLOW_ID);
-      lastStep = response.getBody().asString();
-      if ("3".equals(lastStep)) {
-        break;
-      }
-      Thread.sleep(500);
-    }
-    assertEquals("3", lastStep, "Expected final step 3");
+    var result = service.exampleWorkflow();
+
+    assertEquals("workflow-completed", result);
+    assertEquals(
+        List.of(
+            "runStep:stepOne",
+            "setEvent:1",
+            "runStep:stepTwo",
+            "setEvent:2",
+            "runStep:stepThree",
+            "setEvent:3"),
+        workflowEvents(mockDBOS));
   }
 
   @Test
-  void bankTransferCompletesAllSteps() throws Exception {
-    given().when()
-        .post(BASE_URL + "/bank-transfer/" + BANK_TRANSFER_WORKFLOW_ID)
-        .then().statusCode(200);
 
-    var deadline = System.currentTimeMillis() + 30_000;
-    String lastStep = "";
-    while (System.currentTimeMillis() < deadline) {
-      var response = given().when()
-          .get(BASE_URL + "/last_step/" + BANK_TRANSFER_WORKFLOW_ID);
-      lastStep = response.getBody().asString();
-      if ("200".equals(lastStep)) {
-        break;
-      }
-      Thread.sleep(500);
-    }
-    assertEquals("200", lastStep, "Expected final step 200 for bank transfer");
+  void bankTransferWorkflow_runsTwoStepsInOrderAndReturnsResult() throws Exception {
+    var mockDBOS = mock(DBOS.class);
+    var service = new DurableWorkflowServiceImpl(mockDBOS);
+
+    var result = service.bankTransferWorkflow();
+
+    assertEquals("bank-transfre-completed", result);
+    assertEquals(
+        List.of(
+            "runStep:debt 100",
+            "setEvent:100",
+            "runStep:depot 200",
+            "setEvent:200"),
+        workflowEvents(mockDBOS));
   }
 
-  private static boolean hasRequiredPgEnv() {
-    return isPresent(System.getenv("PGHOST"))
-        && isPresent(System.getenv("PGUSER"))
-        && isPresent(System.getenv("PGPASSWORD"));
+  @Test
+  void debouncerWorkflow_runsWithoutInteractingWithDbos() throws Exception {
+    var mockDBOS = mock(DBOS.class);
+    var service = new DurableWorkflowServiceImpl(mockDBOS);
+
+    var result = service.debouncerWorkflow("demo");
+
+    assertEquals("debouncer-completed", result);
+    verifyNoInteractions(mockDBOS);
   }
 
-  private static boolean isPresent(String value) {
-    return value != null && !value.isBlank();
-  }
+  @Test
+  @SuppressWarnings({ "rawtypes", "unchecked" })
+  void queueWorkflow_startsAndAwaitsQueuedChildren() throws Exception {
+    var mockDBOS = mock(DBOS.class);
+    var mockSelf = mock(DurableWorkflowService.class);
+    WorkflowHandle mockHandle = mock(WorkflowHandle.class);
 
-  private static String buildJdbcUrl(Map<String, String> env) {
-    var host = env.get("PGHOST");
-    var port = env.getOrDefault("PGPORT", "5432");
-    var database = env.getOrDefault("PGDATABASE", DEFAULT_DATABASE);
-    return "jdbc:postgresql://" + host + ":" + port + "/" + database;
+    when(mockDBOS.startWorkflow(anyObjectSupplier(), any(StartWorkflowOptions.class)))
+        .thenReturn(mockHandle);
+    when(mockDBOS.startWorkflow(anyRunnable(), any(StartWorkflowOptions.class))).thenReturn(mockHandle);
+    when(mockDBOS.getEvent(anyString(), eq(STEPS_EVENT), any(Duration.class)))
+        .thenReturn(Optional.empty());
+
+    var service = new DurableWorkflowServiceImpl(mockDBOS);
+    service.setSelf(mockSelf);
+
+    var result = service.queueWorkflow();
+
+    assertEquals("queue-completed", result);
+    assertEquals(10, invocationCount(mockDBOS, "startWorkflow"));
+    verify(mockHandle, times(10)).getResult();
+    verify(mockDBOS).setEvent(eq(STEPS_EVENT), eq(Integer.valueOf(10)));
   }
 }

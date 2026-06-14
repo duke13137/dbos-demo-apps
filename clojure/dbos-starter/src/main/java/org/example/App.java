@@ -9,12 +9,12 @@ public class App {
 
     var dbUrl = System.getenv("DBOS_SYSTEM_JDBC_URL");
     if (dbUrl == null || dbUrl.isEmpty()) {
-      dbUrl = "jdbc:postgresql://localhost:5432/dbos_starter_java";
+      dbUrl = "jdbc:postgresql://localhost:5432/dbos_starter_clojure";
     }
     var dbUser = Objects.requireNonNullElse(System.getenv("PGUSER"), "postgres");
     var dbPassword = Objects.requireNonNullElse(System.getenv("PGPASSWORD"), "dbos");
 
-    var dbosConfig = DBOSConfig.defaults("dbos-starter-java")
+    var dbosConfig = DBOSConfig.defaults("dbos-starter-clojure")
         .withDatabaseUrl(dbUrl)
         .withDbUser(dbUser)
         .withDbPassword(dbPassword)
@@ -22,7 +22,9 @@ public class App {
 
     var dbos = new DBOS(dbosConfig);
 
-    var proxy = dbos.registerProxy(DurableWorkflowService.class, new DurableWorkflowServiceImpl(dbos));
+    var impl = new DurableWorkflowServiceImpl(dbos);
+    var proxy = dbos.registerProxy(DurableWorkflowService.class, impl);
+    impl.setSelf(proxy);
 
     var server = ClojureFacade.startServer(dbos, proxy, 7070);
 

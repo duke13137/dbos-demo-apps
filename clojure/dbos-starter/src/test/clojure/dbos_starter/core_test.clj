@@ -1,13 +1,12 @@
 (ns dbos-starter.core-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [dbos-starter.core :as core])
-  (:import [dev.dbos.transact DBOS StartWorkflowOptions]
+  (:import [dev.dbos.transact DBOS]
            [dev.dbos.transact.config DBOSConfig]
-           [java.time Duration]
+           [dev.dbos.transact.workflow QueueOptions]
            [java.util UUID]
            [org.example DurableWorkflowService DurableWorkflowServiceImpl]))
 
-(def ^:dynamic *dbos* nil)
 (def ^:dynamic *workflow-proxy* nil)
 
 (defn- jdbc-url []
@@ -16,7 +15,7 @@
        ":"
        (or (System/getenv "PGPORT") "5432")
        "/"
-       (or (System/getenv "PGDATABASE") "dbos_starter_java")))
+       "dbos_starter_clojure"))
 
 (defn- dbos-config []
   (-> (DBOSConfig/defaults "dbos-starter-clj-test")
@@ -27,10 +26,13 @@
 
 (defn- with-live-dbos [f]
   (let [dbos (DBOS. (dbos-config))
-        proxy (.registerProxy dbos DurableWorkflowService (DurableWorkflowServiceImpl. dbos))]
+        impl (DurableWorkflowServiceImpl. dbos)
+        proxy (.registerProxy dbos DurableWorkflowService impl)]
     (try
+      (.setSelf impl proxy)
       (.launch dbos)
-      (binding [*dbos* dbos
+      (.registerQueue dbos "example-queue" (QueueOptions/empty))
+      (binding [core/*dbos* dbos
                 *workflow-proxy* proxy]
         (f))
       (finally
@@ -38,27 +40,37 @@
 
 (use-fixtures :once with-live-dbos)
 
-(defn- execute-workflow! [workflow-id workflow-call]
-  (let [handle (.startWorkflow *dbos*
-                               #(workflow-call *workflow-proxy*)
-                               (StartWorkflowOptions. workflow-id))]
-    {:workflow-id workflow-id
-     :result (.getResult handle)
-     :step (.orElse (.getEvent *dbos* workflow-id core/steps-event (Duration/ofSeconds 0))
-                    (Integer/valueOf 0))}))
-
 (deftest example-workflow-test
   (let [{:keys [result step workflow-id]}
-        (execute-workflow! (str "clj-example-" (UUID/randomUUID))
-                           DurableWorkflowService/.exampleWorkflow)]
+        (core/execute-workflow! *workflow-proxy*
+                                (str "clj-example-" (UUID/randomUUID))
+                                DurableWorkflowService/.exampleWorkflow)]
     (is (= "workflow-completed" result))
     (is (= (Integer/valueOf 3) step))
     (is (string? workflow-id))))
 
 (deftest bank-transfer-workflow-test
   (let [{:keys [result step workflow-id]}
-        (execute-workflow! (str "clj-bank-transfer-" (UUID/randomUUID))
-                           DurableWorkflowService/.bankTransferWorkflow)]
+        (core/execute-workflow! *workflow-proxy*
+                                (str "clj-bank-transfer-" (UUID/randomUUID))
+                                DurableWorkflowService/.bankTransferWorkflow)]
     (is (= "bank-transfre-completed" result))
     (is (= (Integer/valueOf 200) step))
+    (is (string? workflow-id))))
+
+(deftest debouncer-workflow-test
+  (let [{:keys [result workflow-id]}
+        (core/execute-workflow! *workflow-proxy*
+                                (str "clj-debouncer-" (UUID/randomUUID))
+                                #(.debouncerWorkflow % "demo"))]
+    (is (= "debouncer-completed" result))
+    (is (string? workflow-id))))
+
+(deftest queue-workflow-test
+  (let [{:keys [result step workflow-id]}
+        (core/execute-workflow! *workflow-proxy*
+                                (str "clj-queue-" (UUID/randomUUID))
+                                DurableWorkflowService/.queueWorkflow)]
+    (is (= "queue-completed" result))
+    (is (= (Integer/valueOf 10) step))
     (is (string? workflow-id))))

@@ -6,16 +6,17 @@
         org.clojure/tools.logging {:mvn/version "1.3.1"}
         org.slf4j/slf4j-simple    {:mvn/version "2.0.18"}}
  :aliases
- {:dev   {:jvm-opts ["-Dclojure.reload=true"]}
+ {:dev   {:extra-paths ["src/test/clojure" "src/test/java"]
+          :jvm-opts ["-Dclojure.reload=true"]}
   :run   {:extra-paths ["."]
           :extra-deps  {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
           :exec-fn build/run-app}
   :build {:deps      {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
           :ns-default build}
   :test  {:extra-paths ["src/test/clojure"]
-           :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "5e91ee0"}}
-           :exec-fn cognitect.test-runner.api/test
-           :exec-args {:dirs ["src/test/clojure"]}}
+          :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "5e91ee0"}}
+          :exec-fn cognitect.test-runner.api/test
+          :exec-args {:dirs ["src/test/clojure"]}}
   :antq     {:deps      {com.github.liquidz/antq {:mvn/version "2.11.1276"}}
              :main-opts ["-m" "antq.core"]}
   :lint     {:deps      {clj-kondo/clj-kondo {:mvn/version "2026.05.25"}}
@@ -24,7 +25,7 @@
              :main-opts ["-m" "cljfmt.main" "check" "src/main/clojure" "src/test/clojure"]}
   :fix      {:deps      {cljfmt/cljfmt {:mvn/version "0.9.2"}}
              :main-opts ["-m" "cljfmt.main" "fix" "src/main/clojure" "src/test/clojure"]}
-  :e2e-test {:extra-paths ["src/test/clojure" "src/test/java" "classes"]
+  :e2e-test {:extra-paths ["src/test/clojure" "src/test/java" "src/test/resources" "classes"]
              :extra-deps  {org.junit.jupiter/junit-jupiter {:mvn/version "5.12.2"}
-                           io.rest-assured/rest-assured {:mvn/version "5.5.1"}
+                           org.mockito/mockito-core {:mvn/version "5.23.0"}
                            org.junit.platform/junit-platform-console-standalone {:mvn/version "1.12.2"}}}}}
