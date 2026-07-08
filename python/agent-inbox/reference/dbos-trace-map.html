@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DBOS Trace Map</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main class="lesson-shell">
+      <section class="panel rounded-box p-6 lg:p-8">
+        <div class="badge badge-soft badge-primary">Reference</div>
+        <h1 class="mt-3 text-3xl font-semibold">DBOS trace map</h1>
+        <p class="mt-3 max-w-3xl text-base-content/80">
+          A compact map for reading the agent-inbox trace. Start at the app line,
+          follow the DBOS wrapper, then inspect the context and core implementation
+          where the durable step is recorded.
+        </p>
+
+        <div class="mt-6 overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Hop</th>
+                <th>Source</th>
+                <th>State change</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><code>main.py:73-82</code></td>
+                <td>Workflow emits an initial status, then flips to <code>pending_approval</code> and blocks on <code>DBOS.recv()</code>.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td><code>dbos/_dbos.py:1712-1718</code></td>
+                <td><code>DBOS.set_event()</code> validates the call path and delegates to the lower-level core function.</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td><code>dbos/_context.py:392-397</code></td>
+                <td><code>snapshot_step_context()</code> snapshots the current workflow context.</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td><code>dbos/_context.py:249-256</code></td>
+                <td><code>start_step()</code> sets the current step id and creates a <code>StepStatus</code>.</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td><code>dbos/_core.py:1976-2000</code></td>
+                <td><code>set_event()</code> writes the event using the active workflow context.</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td><code>dbos/_dbos.py:1538-1557</code></td>
+                <td><code>recv()</code> captures the same context and waits for the human response.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

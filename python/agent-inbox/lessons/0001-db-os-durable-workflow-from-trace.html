@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DBOS durable workflow, from trace to implementation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main class="lesson-shell">
+      <header class="panel rounded-box p-6 lg:p-8">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="badge badge-soft badge-primary">Lesson 1</span>
+          <span class="badge badge-soft">Trace-driven DBOS reading</span>
+        </div>
+        <h1 class="mt-4 text-4xl font-semibold leading-tight lg:text-5xl">
+          DBOS is a workflow context machine, not just a function wrapper.
+        </h1>
+        <p class="mt-4 max-w-4xl text-lg text-base-content/80">
+          In this app, the important move is not “call a Python function and print a status.”
+          It is “enter a DBOS workflow context, snapshot it at each step, and persist the
+          step state so the workflow can pause, resume, and be queried later.”
+        </p>
+        <div class="mt-5 flex flex-wrap gap-2 no-print">
+          <a class="btn btn-primary btn-sm" href="../reference/dbos-trace-map.html">Open trace map</a>
+          <a class="btn btn-ghost btn-sm" href="../RESOURCES.md">Read resources</a>
+        </div>
+      </header>
+
+      <section class="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <article class="panel rounded-box p-6 lg:p-7 lesson-prose">
+          <div class="smallcaps text-base-content/60">What the trace teaches</div>
+          <h2 class="mt-2 text-2xl font-semibold">Follow one request across three layers</h2>
+          <p class="mt-3 text-base-content/80">
+            The trace shows the same workflow instance passing through the app layer,
+            the DBOS wrapper layer, and the DBOS context layer. That is the core design
+            idea: each important transition is tied to a workflow id and a step id.
+          </p>
+
+          <div class="mt-5 overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Hop</th>
+                  <th>Source</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td><code>main.py:73-82</code></td>
+                  <td>The workflow creates an <code>AgentStatus</code>, stores it, marks it <code>pending_approval</code>, then blocks on <code>DBOS.recv()</code>.</td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><code>dbos/_dbos.py:1712-1718</code></td>
+                  <td><code>DBOS.set_event()</code> checks context and hands off to the core implementation.</td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>dbos/_context.py:392-397</code></td>
+                  <td><code>snapshot_step_context()</code> returns a workflow-scoped context snapshot.</td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><code>dbos/_context.py:249-256</code></td>
+                  <td><code>start_step()</code> advances the step id and creates a fresh <code>StepStatus</code>.</td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td><code>dbos/_core.py:1976-2000</code></td>
+                  <td>The event write is committed using the active workflow context.</td>
+                </tr>
+                <tr>
+                  <td>6</td>
+                  <td><code>dbos/_dbos.py:1538-1557</code></td>
+                  <td><code>recv()</code> uses the same context to suspend until approval or timeout.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="alert alert-info mt-6">
+            <span>
+              The useful mental model is simple: <strong>workflow id</strong> answers “which instance?”,
+              <strong>step id</strong> answers “which resumable hop?”, and <strong>events</strong> are the
+              durable state you can query from the UI.
+            </span>
+          </div>
+        </article>
+
+        <aside class="space-y-6">
+          <section class="panel rounded-box p-6">
+            <div class="smallcaps text-base-content/60">Implementation map</div>
+            <h2 class="mt-2 text-xl font-semibold">Where the behavior lives</h2>
+            <ul class="mt-4 space-y-3 text-sm">
+              <li><strong>App layer:</strong> <code>main.py</code> starts the workflow, updates status, and responds to approval.</li>
+              <li><strong>Wrapper layer:</strong> <code>dbos/_dbos.py</code> validates the context and dispatches durable operations.</li>
+              <li><strong>Context layer:</strong> <code>dbos/_context.py</code> snapshots and advances workflow step state.</li>
+              <li><strong>Core layer:</strong> <code>dbos/_core.py</code> performs the actual event write and wait logic.</li>
+            </ul>
+          </section>
+
+          <section class="panel rounded-box p-6">
+            <div class="smallcaps text-base-content/60">Trace snippet</div>
+            <div class="mockup-code mt-3">
+              <pre data-prefix="1"><code>workflow:durable_agent line 1715 snapshot_step_context()</code></pre>
+              <pre data-prefix="2"><code>dbos._context line 392 def snapshot_step_context(...)</code></pre>
+              <pre data-prefix="3"><code>dbos._context line 157 def snapshot_step_ctx(...)</code></pre>
+              <pre data-prefix="4"><code>dbos._context line 249 def start_step(...)</code></pre>
+              <pre data-prefix="5"><code>dbos._core line 1976 def set_event(...)</code></pre>
+            </div>
+          </section>
+
+          <section class="panel rounded-box p-6">
+            <div class="smallcaps text-base-content/60">Primary source</div>
+            <h2 class="mt-2 text-xl font-semibold">Read this next</h2>
+            <p class="mt-3 text-sm text-base-content/80">
+              Start with the DBOS proposal paper to understand the design goal, then return
+              to the trace and source to see how the idea lands in Python.
+            </p>
+            <a class="link link-primary mt-3 inline-block" href="https://arxiv.org/abs/2007.11112" target="_blank" rel="noreferrer">
+              DBOS: A Proposal for a Data-Centric Operating System
+            </a>
+          </section>
+        </aside>
+      </section>
+
+      <section class="mt-6 panel rounded-box p-6 lg:p-7">
+        <div class="smallcaps text-base-content/60">How to read the trace</div>
+        <ol class="mt-3 grid gap-4 lg:grid-cols-4">
+          <li class="rounded-box bg-base-100 p-4">
+            <div class="badge badge-soft badge-primary">1</div>
+            <p class="mt-3 text-sm">Find the app line that changed state.</p>
+          </li>
+          <li class="rounded-box bg-base-100 p-4">
+            <div class="badge badge-soft badge-primary">2</div>
+            <p class="mt-3 text-sm">Follow the wrapper into <code>dbos/_dbos.py</code>.</p>
+          </li>
+          <li class="rounded-box bg-base-100 p-4">
+            <div class="badge badge-soft badge-primary">3</div>
+            <p class="mt-3 text-sm">Inspect <code>snapshot_step_context()</code> and <code>start_step()</code>.</p>
+          </li>
+          <li class="rounded-box bg-base-100 p-4">
+            <div class="badge badge-soft badge-primary">4</div>
+            <p class="mt-3 text-sm">Check the core write or wait path that makes the state durable.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="mt-6 panel rounded-box p-6 lg:p-7">
+        <div class="smallcaps text-base-content/60">Practice</div>
+        <div class="mt-3 grid gap-4 lg:grid-cols-2">
+          <div class="rounded-box bg-base-100 p-4">
+            <h3 class="font-semibold">Question</h3>
+            <p class="mt-2 text-sm text-base-content/80">
+              In the trace, which field tells DBOS “which resumable hop am I on?”
+            </p>
+          </div>
+          <div class="rounded-box bg-base-100 p-4">
+            <h3 class="font-semibold">Check yourself</h3>
+            <p class="mt-2 text-sm text-base-content/80">
+              Look for <code>curr_step_function_id</code>. That is the step counter that DBOS bumps when
+              a workflow snapshot is taken.
+            </p>
+          </div>
+        </div>
+        <p class="mt-4 text-sm text-base-content/70">
+          Ask follow-up questions whenever a line in the trace is unclear. The next lesson can go
+          deeper into the wait/resume path, the event store, or the workflow recovery path.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

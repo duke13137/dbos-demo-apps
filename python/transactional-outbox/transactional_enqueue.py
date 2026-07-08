@@ -1,8 +1,10 @@
 import json
 import os
 import time
+import asyncio
 from pathlib import Path
 
+import pysnooper
 import sqlalchemy as sa
 import uvicorn
 from dbos import DBOS, DBOSConfig, SQLAlchemyDatasource
@@ -21,6 +23,26 @@ ds = SQLAlchemyDatasource.create(os.environ.get("DBOS_DATABASE_URL"))
 
 # Workflows enqueued from the order transaction run on this queue.
 NOTIFICATION_QUEUE = "notification_queue"
+SERVER_TASK: asyncio.Task[None] | None = None
+APP_PORT = int(os.environ.get("PORT", "8000"))
+TRACE_FILE = Path(os.environ.get("DBOS_SNOOP_FILE", ".dbos-pysnooper.log"))
+TRACE_DEPTH = int(os.environ.get("DBOS_SNOOP_DEPTH", "4"))
+TRACE_ENABLED = TRACE_DEPTH > 0
+
+
+def snoop(label: str):
+    if not TRACE_ENABLED:
+        return lambda fn: fn
+
+    TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return pysnooper.snoop(
+        output=str(TRACE_FILE),
+        prefix=f"{label} ",
+        depth=TRACE_DEPTH,
+        thread_info=True,
+        color=False,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Table definition and creation
@@ -40,6 +62,7 @@ orders = sa.Table(
 
 
 @ds.transaction()
+@snoop("db:create_orders_table")
 def create_orders_table() -> None:
     """Ensure the orders table exists."""
     metadata.create_all(ds.sql_session().connection())
@@ -51,6 +74,7 @@ def create_orders_table() -> None:
 
 
 @ds.transaction()
+@snoop("db:insert_order")
 def insert_order(customer: str, item: str, quantity: int) -> int:
     """Insert an order and transactionally enqueue its notification workflow.
 
@@ -96,6 +120,7 @@ def insert_order(customer: str, item: str, quantity: int) -> int:
 
 
 @ds.transaction()
+@snoop("db:update_notification_status")
 def update_notification_status(order_id: int, status: str) -> None:
     """Mark an order's notification as sent."""
     ds.sql_session().execute(
@@ -111,6 +136,7 @@ def update_notification_status(order_id: int, status: str) -> None:
 
 
 @DBOS.step()
+@snoop("step:send_order_notification")
 def send_order_notification(order_id: int, customer: str, item: str) -> None:
     """Simulate sending an order confirmation (e.g. email, Kafka, webhook).
 
@@ -131,6 +157,7 @@ def send_order_notification(order_id: int, customer: str, item: str) -> None:
 
 
 @DBOS.workflow()
+@snoop("workflow:send_notification_workflow")
 def send_notification_workflow(order_id: int, customer: str, item: str) -> None:
     """Send a notification for an order, then mark it sent.
 
@@ -154,6 +181,7 @@ class OrderRequest(BaseModel):
 
 
 @app.post("/orders")
+@snoop("api:create_order")
 def create_order(request: OrderRequest):
     # The order is inserted and its notification workflow enqueued atomically.
     order_id = insert_order(request.customer, request.item, request.quantity)
@@ -162,6 +190,7 @@ def create_order(request: OrderRequest):
 
 @app.get("/orders")
 @ds.transaction()
+@snoop("api:list_orders")
 def list_orders() -> list[dict]:
     """Return all orders, newest first."""
     rows = (
@@ -184,7 +213,7 @@ def index():
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+async def main_async() -> None:
     config: DBOSConfig = {
         "name": "transactional-outbox",
         "system_database_url": os.environ.get("DBOS_DATABASE_URL"),
@@ -192,11 +221,28 @@ def main() -> None:
     DBOS(config=config)
     DBOS.launch()
 
-    DBOS.register_queue(NOTIFICATION_QUEUE)
+    await DBOS.register_queue_async(NOTIFICATION_QUEUE)
 
     create_orders_table()
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    if TRACE_ENABLED:
+        print(f"DBOS PySnooper trace enabled: {TRACE_FILE}")
+
+    server_config = uvicorn.Config(app, host="0.0.0.0", port=APP_PORT)
+    server = uvicorn.Server(server_config)
+    await server.serve()
+
+
+def main() -> None:
+    global SERVER_TASK
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(main_async())
+    else:
+        SERVER_TASK = loop.create_task(main_async())
+        print("Started transactional-outbox server in background task SERVER_TASK")
 
 
 if __name__ == "__main__":

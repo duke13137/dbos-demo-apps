@@ -1,8 +1,10 @@
 import asyncio
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Literal, Optional
 
+import pysnooper
 import uvicorn
 from dbos import DBOS, DBOSConfig
 from fastapi import FastAPI
@@ -20,6 +22,23 @@ app.add_middleware(
 )
 
 AGENT_STATUS = "agent_status"
+TRACE_FILE = Path(os.environ.get("DBOS_SNOOP_FILE", ".dbos-pysnooper.log"))
+TRACE_DEPTH = int(os.environ.get("DBOS_SNOOP_DEPTH", "4"))
+TRACE_ENABLED = TRACE_DEPTH > 0
+
+
+def snoop(label: str):
+    if not TRACE_ENABLED:
+        return lambda fn: fn
+
+    TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return pysnooper.snoop(
+        output=str(TRACE_FILE),
+        prefix=f"{label} ",
+        depth=TRACE_DEPTH,
+        thread_info=True,
+        color=False,
+    )
 
 
 class AgentStartRequest(BaseModel):
@@ -41,6 +60,7 @@ class HumanResponseRequest(BaseModel):
 
 
 @DBOS.workflow()
+@dbos_snoop("workflow:durable_agent")
 def durable_agent(request: AgentStartRequest):
     # Set an agent status the frontend can query
     agent_status: AgentStatus = AgentStatus(
@@ -56,7 +76,7 @@ def durable_agent(request: AgentStartRequest):
     # Do some work...
 
     # Upon reaching the step that needs approval, update status
-    # to `pending_approval` and await an approval notification. 
+    # to `pending_approval` and await an approval notification.
     agent_status.status = "pending_approval"
     DBOS.set_event(AGENT_STATUS, agent_status)
     approval: Optional[HumanResponseRequest] = DBOS.recv(timeout_seconds=3600)
@@ -85,6 +105,7 @@ def durable_agent(request: AgentStartRequest):
 
 
 @app.post("/agents")
+@dbos_snoop("api:start_agent")
 def start_agent(request: AgentStartRequest):
     # Start a durable agent in the background
     DBOS.start_workflow(durable_agent, request)
@@ -103,7 +124,8 @@ async def list_waiting_agents():
     for s, w in zip(statuses, agent_workflows):
         s.agent_id = w.workflow_id
     # Only return active agents that are currently awaiting human approval
-    return [status for status in statuses if status.status == "pending_approval"]
+    waiting = [status for status in statuses if status.status == "pending_approval"]
+    return waiting
 
 
 @app.get("/agents/approved", response_model=list[AgentStatus])
@@ -131,6 +153,7 @@ async def list_denied_agents():
 
 
 @app.post("/agents/{agent_id}/respond")
+@dbos_snoop("api:respond_to_agent")
 def respond_to_agent(agent_id: str, response: HumanResponseRequest):
     # Notify an agent it has been approved or denied
     DBOS.send(agent_id, response)
@@ -146,4 +169,6 @@ if __name__ == "__main__":
     }
     DBOS(config=config)
     DBOS.launch()
+    if TRACE_ENABLED:
+        print(f"DBOS PySnooper trace enabled: {TRACE_FILE}")
     uvicorn.run(app, host="0.0.0.0", port=8000)

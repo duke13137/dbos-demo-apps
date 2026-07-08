@@ -31,3 +31,8 @@ export DBOS_SYSTEM_DATABASE_URL=...
 
 This launches both the Python backend and the React frontend.
 Check out your app at [http://localhost:5173](http://localhost:5173)!
+
+By default, the backend writes a PySnooper trace of the DBOS workflow and API calls
+to `.dbos-pysnooper.log`. To disable tracing, start the backend with
+`DBOS_SNOOP_DEPTH=0`. To write to a different file, set `DBOS_SNOOP_FILE=/path/to/log`.
+To adjust how far the trace expands into DBOS internals, set `DBOS_SNOOP_DEPTH=6`.

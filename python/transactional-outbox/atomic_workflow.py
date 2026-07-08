@@ -2,6 +2,7 @@ import os
 import time
 from pathlib import Path
 
+import asyncio
 import sqlalchemy as sa
 import uvicorn
 from dbos import DBOS, DBOSConfig, SQLAlchemyDatasource
@@ -17,6 +18,9 @@ app = FastAPI()
 if os.environ.get("DBOS_DATABASE_URL") is None:
     raise Exception("DBOS_DATABASE_URL not provided")
 ds = SQLAlchemyDatasource.create(os.environ.get("DBOS_DATABASE_URL"))
+
+SERVER_TASK: asyncio.Task[None] | None = None
+APP_PORT = int(os.environ.get("PORT", "8001"))
 
 # ---------------------------------------------------------------------------
 # Table definition and creation
@@ -157,7 +161,7 @@ def index():
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+async def main_async() -> None:
     config: DBOSConfig = {
         "name": "transactional-outbox",
         "system_database_url": os.environ.get("DBOS_DATABASE_URL"),
@@ -167,7 +171,21 @@ def main() -> None:
 
     create_orders_table()
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    server_config = uvicorn.Config(app, host="0.0.0.0", port=APP_PORT)
+    server = uvicorn.Server(server_config)
+    await server.serve()
+
+
+def main() -> None:
+    global SERVER_TASK
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(main_async())
+    else:
+        SERVER_TASK = loop.create_task(main_async())
+        print("Started atomic_workflow server in background task SERVER_TASK")
 
 
 if __name__ == "__main__":

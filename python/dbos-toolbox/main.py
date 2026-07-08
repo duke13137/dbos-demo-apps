@@ -169,6 +169,7 @@ if __name__ == "__main__":
         "application_version": "0.1.0",
         "conductor_key": os.environ.get("CONDUCTOR_KEY"),
     }
+    port = int(os.environ.get("PORT", "8001"))
     DBOS(config=config)
     DBOS.launch()
     # Register a queue
@@ -184,4 +185,4 @@ if __name__ == "__main__":
             }
         ]
     )
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
